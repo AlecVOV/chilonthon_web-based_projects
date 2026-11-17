@@ -1,0 +1,212 @@
+1
+00:00:05,878 --> 00:00:06,805
+Hello, judges.
+
+2
+00:00:07,190 --> 00:00:09,525
+Thank you for inviting us to Round 2.
+
+3
+00:00:10,255 --> 00:00:12,625
+We are happy to present our demo.
+
+4
+00:00:13,695 --> 00:00:18,495
+Our company operates in Denmark, Norway, and Sweden.
+
+5
+00:00:18,535 --> 00:00:21,885
+After a merger, teams were
+left with disconnected systems.
+
+6
+00:00:22,275 --> 00:00:29,385
+Staff had to enter orders again, customers had
+to wait, and stock information could change.
+
+7
+00:00:29,834 --> 00:00:36,915
+These are our three main problems: repeated
+entry, waiting customers, and changing stock.
+
+8
+00:00:37,795 --> 00:00:47,645
+Round 2 asks another question: can the system
+respond reliably when AI or the POS has an error?
+
+9
+00:00:48,385 --> 00:00:52,455
+SiteDesk works alongside the POS and ERP.
+
+10
+00:00:52,985 --> 00:00:57,495
+We will show the first user journey at the counter,
+
+11
+00:00:58,105 --> 00:01:03,015
+the second journey by email,
+and then AI and POS failures.
+
+12
+00:01:10,253 --> 00:01:17,728
+First, the counter journey. I will
+upload the customer's 18-item list.
+
+13
+00:01:18,458 --> 00:01:27,078
+SiteDesk reads the list, matches products,
+converts quantities, and checks stock.
+
+14
+00:01:27,568 --> 00:01:31,768
+Items that need attention appear for staff to review.
+
+15
+00:01:32,358 --> 00:01:38,648
+We can offer an alternative, but we only
+choose it after the customer agrees.
+
+16
+00:01:39,718 --> 00:01:41,868
+Now I will confirm the order.
+
+17
+00:01:42,148 --> 00:01:48,448
+The POS accepts it and returns a reference.
+
+18
+00:01:53,246 --> 00:01:56,741
+Now the customer is not at the counter.
+
+19
+00:01:56,781 --> 00:02:10,421
+We paste the customer's email into the quote flow.
+
+20
+00:02:10,461 --> 00:02:17,531
+SiteDesk finds the unavailable items
+and prepares a reply with alternatives.
+
+21
+00:02:17,681 --> 00:02:23,801
+The staff sends the reply, and the customer approves it.
+
+22
+00:02:23,841 --> 00:02:25,301
+We save the quote.
+
+23
+00:02:25,341 --> 00:02:35,291
+It shows a price and stock snapshot,
+but it does not reserve the items.
+
+24
+00:02:36,221 --> 00:02:42,561
+Before pickup, I change the stock in
+the demo and check the quote again.
+
+25
+00:02:43,381 --> 00:02:51,741
+Staff can review the changes, prepare the pick slip,
+and confirm the order when the customer arrives.
+
+26
+00:02:56,768 --> 00:03:02,244
+Now we will show what happens
+when the POS is unavailable.
+
+27
+00:03:02,284 --> 00:03:06,254
+SiteDesk exports the order to a CSV file.
+
+28
+00:03:06,294 --> 00:03:16,784
+The status clearly says that the POS did not accept it.
+
+29
+00:03:16,824 --> 00:03:25,264
+Staff can download the file for manual entry.
+
+30
+00:03:29,324 --> 00:03:33,744
+Next, the AI is unavailable.
+
+31
+00:03:34,724 --> 00:03:40,534
+SiteDesk shows an alert and lets
+staff search the catalog manually.
+
+32
+00:03:41,574 --> 00:03:48,414
+Staff can select the correct item
+and continue the order to the POS.
+
+33
+00:03:49,064 --> 00:03:51,354
+The technical checks still apply.
+
+34
+00:03:57,597 --> 00:04:00,387
+Here is our system architecture.
+
+35
+00:04:00,867 --> 00:04:08,367
+The web app connects to the FastAPI core, which handles product matching and orders.
+
+36
+00:04:08,887 --> 00:04:14,977
+It uses local embeddings, hard rules, and PostgreSQL.
+
+37
+00:04:15,437 --> 00:04:22,417
+The POS connector is part of the core and connects to our simulated POS.
+
+38
+00:04:23,227 --> 00:04:27,097
+If the POS fails, SiteDesk exports a CSV.
+
+39
+00:04:27,427 --> 00:04:29,167
+The LLM is optional.
+
+40
+00:04:35,832 --> 00:04:39,312
+We showed the counter journey, the email quote journey,
+
+41
+00:04:39,512 --> 00:04:45,682
+a stock change, and recovery from AI and POS failures.
+
+42
+00:04:46,212 --> 00:04:54,622
+These cases address our three main problems: repeated
+entry, waiting customers, and changing stock.
+
+43
+00:04:55,482 --> 00:04:59,942
+They also show the reliability work for Round 2.
+
+44
+00:05:00,732 --> 00:05:03,432
+This is a demo with simulated systems.
+
+45
+00:05:04,122 --> 00:05:08,682
+More testing is needed with real store data and systems.
+
+46
+00:05:13,545 --> 00:05:18,415
+This table summarizes what we showed and what still needs testing.
+
+47
+00:05:19,065 --> 00:05:26,835
+The demo addresses repeated order entry, customer waiting, and changing stock through both order journeys.
+
+48
+00:05:27,635 --> 00:05:33,005
+We also showed how the system responds to AI and POS failures.
+
+49
+00:05:33,455 --> 00:05:39,335
+Real-store performance and production integrations still need testing.
+

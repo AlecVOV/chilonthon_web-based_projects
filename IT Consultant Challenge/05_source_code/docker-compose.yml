@@ -1,0 +1,116 @@
+name: it-consultant-challenge-2026
+
+services:
+  # 1. DATABASE: PostgreSQL 15 + pgvector (SRS v2 §12.1)
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: sitedesk_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password123}
+      POSTGRES_DB: ${POSTGRES_DB:-sitedesk_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - sitedesk_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 2. MOCK-POS [simulated] POS/ERP/PIM/WMS
+  mock-pos:
+    build:
+      context: ./mock-pos
+      dockerfile: Dockerfile
+    container_name: sitedesk_mock_pos
+    restart: always
+    ports:
+      - "8001:8001"
+    environment:
+      FAIL_MODE: ${MOCK_POS_FAIL_MODE:-false}
+    volumes:
+      - ./mock-pos:/app
+    networks:
+      - sitedesk_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 3. BACKEND: Python FastAPI (Core API)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: sitedesk_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg2://postgres:password123@db:5432/sitedesk_db}
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-chat}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-8}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-intfloat/multilingual-e5-small}
+      AI_FAIL_MODE: ${AI_FAIL_MODE:-false}
+      MATCH_HIGH_THRESHOLD: ${MATCH_HIGH_THRESHOLD:-0.90}
+      MATCH_REVIEW_THRESHOLD: ${MATCH_REVIEW_THRESHOLD:-0.80}
+      AMBIGUITY_GAP: ${AMBIGUITY_GAP:-0.05}
+      CONNECTOR_MODE: ${CONNECTOR_MODE:-api}
+      MOCK_POS_URL: ${MOCK_POS_URL:-http://mock-pos:8001}
+      DEFAULT_MARKET: ${DEFAULT_MARKET:-DK}
+      # Simulated sign-in (FR-032). Off by default; DEMO_PASSWORD is never committed.
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      DEMO_PASSWORD: ${DEMO_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      IDLE_TIMEOUT_SECONDS: ${IDLE_TIMEOUT_SECONDS:-300}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001,http://127.0.0.1:3001}
+    depends_on:
+      db:
+        condition: service_healthy
+      mock-pos:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+      - hf_cache:/root/.cache/huggingface # embedding model weights (~0.5 GB), downloaded once
+      - ./mock-pos/seeds:/seeds:ro # read-only: tests + evaluation use the same seed catalog
+    networks:
+      - sitedesk_net
+
+  # 4. FRONTEND: Next.js (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: sitedesk_frontend
+    restart: always
+    ports:
+      - "3001:3001"
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      WATCHPACK_POLLING: "true" # hot reload through Windows/WSL bind mounts
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    networks:
+      - sitedesk_net
+
+volumes:
+  pgdata:
+  hf_cache:
+
+networks:
+  sitedesk_net:
+    driver: bridge

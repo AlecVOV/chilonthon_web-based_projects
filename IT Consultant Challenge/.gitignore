@@ -1,0 +1,16 @@
+# Files waiting for manual review/deletion
+_to_delete/
+
+# Contest briefs (Netcompany confidentiality notice) - kept locally only
+01_de_bai/
+
+# Secrets
+.env
+**/.env
+
+# Build output / caches (in case dependencies are reinstalled)
+node_modules/
+.next/
+__pycache__/
+.pytest_cache/
+*.tsbuildinfo

@@ -1,0 +1,325 @@
+"""Rules-first line parser (MVP-FR-001/003/004/005/006/011).
+
+AI owner: an optional LLM parse/attribute step can be added in ai/ and called from pipeline when
+rules leave a line ambiguous; rules must keep working when AI_FAIL_MODE=true.
+"""
+import csv
+import io
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Optional
+
+# MVP-FR-011 unit dictionary DA/NO/SV/EN (draft per SRS §15.2 — dev must verify)
+UNIT_MAP = {
+    "stk": "piece", "stk.": "piece", "styk": "piece", "stykker": "piece", "st": "piece", "st.": "piece",
+    "styck": "piece", "pcs": "piece", "pc": "piece", "piece": "piece", "pieces": "piece",
+    "m": "linear_metre", "lbm": "linear_metre", "lm": "linear_metre", "lpm": "linear_metre", "meter": "linear_metre", "metre": "linear_metre",
+    "løpemeter": "linear_metre", "lopemeter": "linear_metre", "løbemeter": "linear_metre",
+    "m2": "square_metre", "m²": "square_metre", "kvm": "square_metre", "sqm": "square_metre",
+    "pk": "pack", "pk.": "pack", "pakke": "pack", "pakker": "pack", "pack": "pack", "packs": "pack", "paket": "pack",
+    "förp": "pack", "förp.": "pack", "forp": "pack",
+    "sæk": "bag", "pose": "bag", "poser": "bag", "sække": "bag", "sekk": "bag", "sekker": "bag", "säck": "bag", "säckar": "bag", "bag": "bag", "bags": "bag",
+    # canonical name follows SRS §15.2 ("sheet"); "board"/"boards" stay accepted as input aliases
+    "plade": "sheet", "plader": "sheet", "plate": "sheet", "plater": "sheet", "skiva": "sheet", "skivor": "sheet",
+    "sheet": "sheet", "sheets": "sheet", "board": "sheet", "boards": "sheet",
+    "palle": "pallet", "paller": "pallet", "pall": "pallet", "pallar": "pallet", "pallet": "pallet", "pallets": "pallet",
+}
+# "m" alone is ambiguous outside length-sold categories (SRS §15.2: never guess, flag for review)
+LENGTH_CATEGORIES = {"timber", "decking"}
+MULTIWORD_UNITS = re.compile(r"\blinear\s+met(?:er|re)s?\b|\blø(?:p|b)ende\s+meter\b", re.I)
+UNIT_TOKEN = r"[A-Za-zæøåÆØÅäöÄÖ²2.]+"
+NUM = r"\d+(?:[.,]\d+)?"
+
+# order matters: more specific groups first ("terrassebræt" before generic "træ")
+CATEGORY_KEYWORDS = {
+    "decking": ["terrasse", "terrassebræt", "deck", "trall", "terrassebord", "komposit"],
+    # English phrases below are the catalog's own English aliases (mock-pos/seeds/generate.py TYPE_ALIAS)
+    "gypsum": ["gips", "gypsum", "vådrum", "våtrom", "våtrum", "drywall", "plasterboard", "brandplade", "brannplate", "brandskiva",
+               "moisture board", "wet room board", "wetroom board", "fire board", "fireboard", "fire-rated board"],
+    "insulation": ["isolering", "isolasjon", "insulation", "rockwool", "isover", "knauf", "batts", "mineraluld", "stenuld",
+                   "glasuld", "steinull", "glassull", "stenull", "glasull"],
+    "cement": ["cement", "sement", "mørtel", "mortel", "murbruk", "mortar", "beton", "fliseklæb", "flislim", "tile adhesive",
+               "fugemasse", "grout", "flydespartel", "avretting", "flytspackel", "puds", "filtsand", "kalkbruk"],
+    "timber": ["træ", "trae", "tre ", "trä", "timber", "regel", "reglar", "lægte", "laegte", "lekte", "läkt", "konstruktionstræ",
+               "virke", "planke", "stud", "c24", "c18", "c30", "c16", "c14"],
+}
+MOISTURE_WORDS = ["vådrum", "våtrom", "våtrum", "moisture", "wet room", "fugt", "mr "]
+BOARD_TYPE_WORDS = {  # gypsum must-match "type"
+    "moisture": MOISTURE_WORDS,
+    "fire": ["brandgips", "brandplade", "brannplate", "brandskiva", "fire board", "fireboard", "fire-rated", "brandsikker"],
+    "impact": ["robust", "slagfast", "impact"],
+    "standard": ["standard", "normal", "almindelig", "alm.", "vanlig"],
+}
+TREATMENT_WORDS = {"pressure_treated": ["trykimp", "imprægneret", "impregnert", "impregnerad", "pressure", "tryckimp", " ntr", "ntr/ab"],
+                   "ntr_ab": ["ntr", "ntr/ab", " ab "],
+                   "thermo": ["thermo", "termo"],
+                   "hardwood": ["hårdttræ", "hårdt træ", "hardwood", "hardved", "hårdträ"],
+                   "composite": ["komposit", "composite", "kompositt"]}
+PRODUCT_TYPE_WORDS = {  # cement group must-match "type"; more specific first
+    "rapid_cement": ["hurtigcement", "rapid", "hurtighærdende"],
+    "white_cement": ["hvid cement", "white cement", "hvit sement", "vit cement"],
+    "lime_mortar": ["kalkmørtel", "kalkbruk", "lime mortar"],
+    "mortar": ["mørtel", "mortel", "murbruk", "mortar", "murmørtel"],
+    "concrete": ["beton", "betong", "concrete", "tørbeton"],
+    "tile_adhesive": ["fliseklæb", "flislim", "tile adhesive", "fliselim"],
+    "grout": ["fugemasse", "grout", "fugmassa", " fug "],
+    "levelling": ["flydespartel", "avretting", "flytspackel", "self-levelling", "levelling"],
+    "render": ["puds", "filtsand", "render", "puts"],
+    "cement": ["cement", "sement"],
+}
+
+
+def _num(s: str) -> float:
+    return float(s.replace(",", "."))
+
+
+@dataclass
+class ParsedRow:
+    line_no: int
+    source_text: str
+    source_start: int
+    source_end: int
+    item_text: Optional[str]
+    quantity: Optional[float]
+    unit_raw: Optional[str]
+    unit: Optional[str]
+    status: str  # OK | UNREADABLE
+    warnings: list = field(default_factory=list)
+    length_m: Optional[float] = None
+
+
+def normalize_unit(raw: Optional[str]) -> Optional[str]:
+    if not raw:
+        return None
+    return UNIT_MAP.get(raw.strip().lower())
+
+
+def parse_line(text: str, line_no: int = 1, start: int = 0) -> ParsedRow:
+    src = text.strip()
+    row = ParsedRow(line_no, src, start, start + len(text), None, None, None, None, "OK")
+    if len(re.findall(r"[A-Za-zæøåÆØÅäöÄÖ]", src)) < 3:
+        row.status = "UNREADABLE"
+        row.warnings.append("no_material_text")
+        return row
+    body = src.lstrip("-•*·").strip()
+    body = re.sub(r"^\d+[.)]\s+", "", body)  # "1. " / "2) " list numbering
+    body = MULTIWORD_UNITS.sub("lbm", body)  # "linear metre" / "løbende meter" → one token the unit regex can read
+    # masked contact tokens are not part of the item; "[EMAIL] ... 10 stk timber" leaves a dangling ellipsis to drop
+    body = re.sub(r"\s{2,}", " ", CONTACT_MARK_RE.sub(" ", body)).lstrip(" -–:,;.…").rstrip(" -–:,;")
+
+    # N x L  (e.g. "10 x 4.8m timber 45x95" / "timber 45x95 10 x 4,8 m")
+    nxl = re.search(rf"(?<![\dx×])(\d+)\s*[x×]\s*({NUM})\s*m\b", body, re.I)
+    if nxl:
+        row.quantity = float(nxl.group(1))
+        row.length_m = _num(nxl.group(2))
+        row.unit_raw = nxl.group(0)
+        row.unit = "piece"
+        row.warnings.append("n_x_l_review")
+        body = (body[:nxl.start()] + body[nxl.end():]).strip(" -–:,")
+    elif (cl := re.match(rf"^({NUM})\s*({UNIT_TOKEN})\s+(.+?)[\s,;\-–:]+({NUM})\s*m\.?\s*$", body, re.I))             and normalize_unit(cl.group(2)) in {"piece", "pack", "bag", "sheet", "pallet"}:
+        # "15 stk 48x98 C24 4.8m": the leading count is the quantity, the trailing metres are the piece length
+        row.quantity = _num(cl.group(1))
+        row.unit_raw = cl.group(2)
+        row.unit = normalize_unit(cl.group(2))
+        row.length_m = _num(cl.group(4))
+        body = cl.group(3)
+    else:
+        # trailing quantity: "... - 120 m", "...: 15 pk", "..., 30 stk"
+        m = re.search(rf"(?:^|[\s\-–:,(])({NUM})\s*({UNIT_TOKEN})?\s*\)?\s*$", body)
+        lead = re.match(rf"^({NUM})\s*({UNIT_TOKEN})?\s+(.+)$", body)
+        spec_unit = m and (m.group(2) or "").lower().rstrip(".") in {"mm", "cm", "kg"}
+        if m and not spec_unit and not re.search(r"[x×]\s*$", body[:m.start(1)]):
+            row.quantity = _num(m.group(1))
+            row.unit_raw = m.group(2)
+            body = body[:m.start()].strip(" -–:,(")
+        elif lead:
+            row.quantity = _num(lead.group(1))
+            unit_candidate = lead.group(2)
+            if unit_candidate and normalize_unit(unit_candidate):
+                row.unit_raw = unit_candidate
+                body = lead.group(3)
+            else:
+                body = (unit_candidate + " " if unit_candidate else "") + lead.group(3)
+        row.unit = normalize_unit(row.unit_raw)
+        if row.unit == "linear_metre" and (row.unit_raw or "").strip().lower().rstrip(".") == "m" \
+                and detect_category(src) not in LENGTH_CATEGORIES:
+            row.unit = None  # bare "m" without a length-sold category: do not guess (SRS §15.2)
+            row.warnings.append("ambiguous_unit_m")
+        if row.unit_raw and not row.unit and "ambiguous_unit_m" not in row.warnings:
+            row.warnings.append("unknown_unit")
+    if row.quantity is None:
+        row.warnings.append("missing_quantity")
+    elif row.unit is None and "unknown_unit" not in row.warnings:
+        row.warnings.append("missing_unit")
+    row.item_text = body.strip() or None
+    if not row.item_text:
+        row.status = "UNREADABLE"
+    return row
+
+
+SIGNOFF_RE = re.compile(r"^(mvh|m\.v\.h|med venlig(?:\s+hilsen)?|venlig hilsen|vennlig hilsen|med vennlig hilsen|med vänliga hälsningar|"
+                        r"vänliga hälsningar|hälsningar|hilsen|best regards|kind regards|regards|br|vh)\b[,.!]?\s*$", re.I)
+
+
+def split_text(text: str) -> list[ParsedRow]:
+    """One row per material line. Skips mail headers/greetings and contact lines; stops at the sign-off so the
+    signature (names, titles, addresses) is never turned into rows."""
+    rows, pos, n = [], 0, 0
+    for raw in text.splitlines(keepends=True):
+        stripped = raw.strip()
+        if SIGNOFF_RE.match(stripped):
+            break
+        if stripped and not _is_header(stripped) and not _is_contact(stripped):
+            n += 1
+            rows.append(parse_line(raw.rstrip("\r\n"), n, pos))
+        pos += len(raw)
+    return rows
+
+
+def _is_header(line: str) -> bool:
+    low = line.lower()
+    return bool(re.match(r"^(subject|emne|ämne|from|fra|från|to|til|till|hej|hi|dear|kære|mvh|med venlig|best regards|vh|tak|thanks)\b", low))
+
+
+CONTACT_MARK_RE = re.compile(r"\[(?:PHONE|EMAIL)\]")
+
+
+def _is_contact(line: str) -> bool:
+    """A line that is only contact details ("Ring på [PHONE]"). A material line that merely carries a masked phone or
+    e-mail ("120 m timber 45x95 C24 ring [PHONE]") is NOT a contact line: dropping it would lose an order line silently."""
+    if not CONTACT_MARK_RE.search(line):
+        return False
+    rest = CONTACT_MARK_RE.sub(" ", line)
+    return not (re.search(r"\d", rest) or detect_category(rest))
+
+
+HEADER_RE = re.compile(r"\b(vare|item|produkt|product|beskrivelse|description|antal|qty|quantity)\b", re.I)
+
+
+def _drop_header(lines: list[str]) -> list[str]:
+    if lines and HEADER_RE.search(lines[0]) and not re.search(r"\d", lines[0]):
+        return lines[1:]
+    return lines
+
+
+def rows_from_table(content: bytes, filename: str) -> str:
+    """XLSX/CSV → one text line per row (cells joined). Keeps the pipeline single-path.
+    XLSX: every sheet is read in order (nothing is silently ignored); each sheet drops its own header row."""
+    name = filename.lower()
+    blocks: list[list[str]] = []
+    if name.endswith(".xlsx"):
+        from openpyxl import load_workbook
+        wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
+        for ws in wb.worksheets:
+            lines = []
+            for r in ws.iter_rows(values_only=True):
+                cells = [str(c).strip() for c in r if c is not None and str(c).strip()]
+                if cells:
+                    lines.append(" ".join(cells))
+            blocks.append(lines)
+    else:
+        txt = content.decode("utf-8-sig", errors="replace")
+        dialect = csv.Sniffer().sniff(txt[:2048], delimiters=",;\t") if txt.strip() else csv.excel
+        lines = []
+        for r in csv.reader(io.StringIO(txt), dialect):
+            cells = [c.strip() for c in r if c.strip()]
+            if cells:
+                lines.append(" ".join(cells))
+        blocks.append(lines)
+    return "\n".join(line for lines in blocks for line in _drop_header(lines))
+
+
+class UnreadableFile(ValueError):
+    """The upload looks like a supported type but is damaged (an input problem, not a server error)."""
+
+
+class InputTooLarge(ValueError):
+    """Over a documented input limit (OI-04). `code` is an i18n key, `params` its arguments."""
+
+    def __init__(self, code: str, **params) -> None:
+        super().__init__(code)
+        self.code, self.params = code, params
+
+
+MAX_PDF_PAGES = int(os.getenv("MAX_PDF_PAGES", "20"))
+MAX_ROWS = int(os.getenv("MAX_ROWS", "300"))
+
+
+def check_row_limit(n: int, limit: int = MAX_ROWS) -> None:
+    if n > limit:
+        raise InputTooLarge("too_many_rows", n=n, max=limit)
+
+
+def pdf_text(content: bytes) -> str:
+    from pypdf import PdfReader
+    try:
+        reader = PdfReader(io.BytesIO(content))
+        if len(reader.pages) > MAX_PDF_PAGES:
+            raise InputTooLarge("pdf_too_long", pages=len(reader.pages), max=MAX_PDF_PAGES)
+        return "\n".join((p.extract_text() or "") for p in reader.pages)
+    except InputTooLarge:
+        raise
+    except Exception as e:  # noqa: BLE001 — pypdf raises many exception types for damaged files
+        raise UnreadableFile(str(e)) from e
+
+
+# ---------- attribute extraction (rules) ----------
+# Accessories (screws, nails, fixings) are outside the 5 seeded categories (SRS v2 drops accessories/vít). A word like
+# "gipsskruer" must not be read as gypsum just because it contains "gips".
+ACCESSORY_RE = re.compile(r"skru|screw|spik|bolt|beslag|dübel|dubel|\b(?:søm|sømmer|nail|nails|plugg)\b")
+
+
+def detect_category(text: str) -> Optional[str]:
+    low = f" {text.lower()} "
+    if ACCESSORY_RE.search(low):
+        return None
+    for cat, words in CATEGORY_KEYWORDS.items():
+        if any(w in low for w in words):
+            return cat
+    if re.search(r"\b\d{2}\s*[x×]\s*\d{2,3}\b", low):
+        return "timber"
+    return None
+
+
+def extract_attributes(text: str, length_hint: Optional[float] = None) -> dict:
+    low = f" {text.lower()} "
+    attrs: dict = {}
+    cat = detect_category(text)
+    if cat:
+        attrs["category"] = cat
+    cs = re.search(r"\b(\d{2,3})\s*[x×]\s*(\d{2,3})\b(?!\s*(?:[.,]\d+)?\s*m\b)", low)
+    if cs:
+        attrs["cross_section_mm"] = f"{cs.group(1)}x{cs.group(2)}"
+    g = re.search(r"\bc(14|16|18|24|30)\b", low)
+    if g:
+        attrs["strength_grade"] = f"C{g.group(1)}"
+    th = re.search(rf"\b({NUM})\s*mm\b", low)
+    if th and not cs:
+        attrs["thickness_mm"] = _num(th.group(1))
+    ln = re.search(rf"\b({NUM})\s*m\b", low)
+    if ln:
+        attrs["length_m"] = _num(ln.group(1))
+    elif length_hint:
+        attrs["length_m"] = length_hint
+    kg = re.search(r"\b(\d+)\s*kg\b", low)
+    if kg:
+        attrs["bag_weight_kg"] = float(kg.group(1))
+    if any(w in low for w in MOISTURE_WORDS):
+        attrs["moisture_resistant"] = True
+    if cat == "gypsum":
+        bt = next((t for t, words in BOARD_TYPE_WORDS.items() if any(w in low for w in words)), None)
+        if bt:
+            attrs["board_type"] = bt
+    if cat == "decking":
+        treat = [k for k, words in TREATMENT_WORDS.items() if any(w in low for w in words)]
+        if treat:
+            attrs["treatment"] = treat
+    if cat == "cement":
+        pt = next((t for t, words in PRODUCT_TYPE_WORDS.items() if any(w in low for w in words)), None)
+        if pt:
+            attrs["product_type"] = pt
+    for brand in ["rockwool", "isover", "knauf", "gyproc"]:
+        if brand in low:
+            attrs["brand"] = brand.capitalize() if brand != "rockwool" else "Rockwool"
+    return attrs

@@ -1,0 +1,39 @@
+Bạn là một Senior IT Consultant xuất sắc tại Netcompany, chuyên gia tư vấn chuyển đổi số cho các tập đoàn bán lẻ lớn tại châu Âu. 
+
+Dưới đây là đề bài "IT Consultant Challenge 2026 - Round 1" của Netcompany dành cho Company A (nhà bán lẻ vật liệu xây dựng hàng đầu tại Đan Mạch, Na Uy, Thụy Điển). 
+
+Hãy phân tích kỹ file tài liệu đính kèm và xây dựng một giải pháp tư vấn toàn diện, sắc bén, mang tính thực thi cao dưới dạng **Cấu trúc nội dung chi tiết cho bài thuyết trình tối đa 10 slide**. 
+
+Bài làm cần thể hiện tư duy cấu trúc (Structured Thinking), tính thực tế (Practical IT Solution), và bám sát các tiêu chí chấm điểm của ban giám khảo:
+1. Problem Understanding (Hiểu sâu bản chất vấn đề của Company A tại 3 thị trường: Đan Mạch, Na Uy, Thụy Điển).
+2. Prioritisation & Critical Thinking (Lựa chọn 1 vấn đề cốt lõi nhất để tập trung giải quyết và biện chứng lý do).
+3. Business Impact (Đo lường giá trị kinh tế mang lại).
+4. Feasible Solution & MVP Scope (Đề xuất giải pháp công nghệ tập trung, có tích hợp AI đúng xu hướng "Building European sovereignty for the age of AI" của Netcompany, kèm phạm vi MVP tối ưu thời gian ra mắt - Time to market).
+5. Scale & Rollout (Chiến lược nhân rộng giải pháp sang các thị trường còn lại nhưng vẫn tôn trọng tính đặc thù địa phương).
+
+Hãy trình bày theo định dạng rõ ràng từng slide (từ Slide 1 đến Slide 10), bao gồm:
+- Tiêu đề slide (Slide Title)
+- Key Message (Thông điệp cốt lõi của slide)
+- Nội dung chi tiết (Bullet points sắc sảo, dùng từ ngữ chuyên ngành tư vấn chiến lược IT)
+- Gợi ý hình ảnh/Biểu đồ trực quan trên slide (nếu cần)
+- Speaker Notes (Ý chính cần nói khi thuyết trình)
+
+Hãy bắt đầu giải quyết bài toán ngay bây giờ với góc nhìn sắc sảo nhất!
+
+
+
+
+Mẹo tối ưu hóa kết quả với ChatGPT Max Model:
+Sau khi ChatGPT trả về bộ khung 10 slide hoàn chỉnh, bạn có thể "ép" nó đi sâu hơn vào từng phần bằng các câu lệnh phụ (follow-up prompts) cực kỳ chất lượng sau:
+
+Đào sâu phần Giải pháp & AI:
+
+"Hãy viết chi tiết phần kiến trúc giải pháp công nghệ (Technical Architecture & AI Feature) cho Slide 6 và Slide 7. Cụ thể hóa AI sẽ tự động hóa khâu nào để giảm tải manual process tối đa."
+
+Chuẩn bị Q&A với Ban giám khảo:
+
+"Dựa trên đề xuất này, đóng vai là Ban giám khảo khó tính của Netcompany, hãy đặt ra 3 câu hỏi hóc búa nhất về rủi ro triển khai tại thị trường Na Uy/Thụy Điển và gợi ý câu trả lời chiến lược cho nhóm."
+
+Viết kịch bản pitch (Speaker Script):
+
+"Viết kịch bản thuyết trình bằng tiếng Anh (hoặc song ngữ) thật trôi chảy, tự nhiên trong vòng 5 phút cho toàn bộ 10 slide này."

@@ -2,6 +2,9 @@
 
 ## 🗂️ Projects:
 
+### IT Consultant Challenge 2026 — SiteDesk
+Team orangeCore's entry to the Netcompany × Code MeLy IT Consultant Challenge 2026 (proposal in the top 21 of 160 teams). SiteDesk is an AI counter assistant for a building-materials retailer: it turns a customer's material list (PDF, Excel, email, pasted text) into a stock-checked order that staff review and confirm. Built with Next.js, FastAPI, PostgreSQL + pgvector and multilingual embeddings, with a rules-only fallback when AI is unavailable. Includes the round 1 proposal, round 2 MVP, demo video, SRS and AI Journal.
+
 ### Ice Cream Website
 This project is from my COS10005 Web Development (Assignment 2) unit at Swinburne University of Technology. The website showcases a variety of ice cream products, complete with descriptions, prices, and an option to order online.
 
